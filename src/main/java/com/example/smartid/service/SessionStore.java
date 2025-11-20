@@ -1,0 +1,203 @@
+package com.example.smartid.service;
+
+import com.example.smartid.dto.SessionStatusResponse;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.stereotype.Service;
+
+import java.io.Serializable;
+import java.security.cert.X509Certificate;
+import java.util.Base64;
+import java.util.UUID;
+import java.util.concurrent.TimeUnit;
+
+@Service
+public class SessionStore {
+
+    private static final int SESSION_TIMEOUT_MINUTES = 5;
+
+    @Autowired
+    private RedisTemplate<String, SessionData> redisTemplate;
+
+    @Autowired
+    private CertificateService certificateService;
+
+    public static class SessionData implements Serializable {
+        private static final long serialVersionUID = 1L;
+
+        private String personalCode;
+        private String country;
+        private String hash;
+        private String givenName;
+        private String surname;
+        private long createdAt;
+        private int completionTimeoutSeconds;
+        private boolean completed;
+        private String certificateBase64;
+        private String signature;
+
+        public SessionData() {
+            // Default constructor for Jackson
+        }
+
+        public SessionData(String personalCode, String country, String hash, String givenName, String surname) {
+            this.personalCode = personalCode;
+            this.country = country;
+            this.hash = hash;
+            this.givenName = givenName;
+            this.surname = surname;
+            this.createdAt = System.currentTimeMillis();
+            // Random timeout between 5 and 60 seconds
+            this.completionTimeoutSeconds = 5 + (int) (Math.random() * 30);
+            this.completed = false;
+        }
+
+        public long getCreatedAt() {
+            return createdAt;
+        }
+
+        public int getCompletionTimeoutSeconds() {
+            return completionTimeoutSeconds;
+        }
+
+        public String getPersonalCode() {
+            return personalCode;
+        }
+
+        public String getCountry() {
+            return country;
+        }
+
+        public String getHash() {
+            return hash;
+        }
+
+        public String getGivenName() {
+            return givenName;
+        }
+
+        public String getSurname() {
+            return surname;
+        }
+
+        public boolean isCompleted() {
+            return completed;
+        }
+
+        public void setCompleted(boolean completed) {
+            this.completed = completed;
+        }
+
+        public String getCertificateBase64() {
+            return certificateBase64;
+        }
+
+        public void setCertificateBase64(String certificateBase64) {
+            this.certificateBase64 = certificateBase64;
+        }
+
+        @JsonIgnore
+        public X509Certificate getCertificate() throws Exception {
+            if (certificateBase64 == null) {
+                return null;
+            }
+            byte[] decoded = Base64.getDecoder().decode(certificateBase64);
+            java.security.cert.CertificateFactory cf = java.security.cert.CertificateFactory.getInstance("X.509");
+            return (X509Certificate) cf.generateCertificate(new java.io.ByteArrayInputStream(decoded));
+        }
+
+        public void setCertificate(X509Certificate certificate) throws Exception {
+            if (certificate != null) {
+                this.certificateBase64 = Base64.getEncoder().encodeToString(certificate.getEncoded());
+            }
+        }
+
+        public String getSignature() {
+            return signature;
+        }
+
+        public void setSignature(String signature) {
+            this.signature = signature;
+        }
+    }
+
+    public String createSession(String personalCode, String country, String hash, String givenName, String surname) {
+        String sessionId = UUID.randomUUID().toString();
+        SessionData sessionData = new SessionData(personalCode, country, hash, givenName, surname);
+        redisTemplate.opsForValue().set(sessionId, sessionData, SESSION_TIMEOUT_MINUTES, TimeUnit.MINUTES);
+        return sessionId;
+    }
+
+    public SessionData getSession(String sessionId) {
+        return redisTemplate.opsForValue().get(sessionId);
+    }
+
+    public SessionData completeSession(String sessionId, X509Certificate certificate, String signature) {
+        SessionData session = getSession(sessionId);
+        if (session != null) {
+            try {
+                session.setCompleted(true);
+                session.setCertificate(certificate);
+                session.setSignature(signature);
+                // Update in Redis
+                redisTemplate.opsForValue().set(sessionId, session, SESSION_TIMEOUT_MINUTES, TimeUnit.MINUTES);
+            } catch (Exception e) {
+                throw new RuntimeException("Failed to complete session", e);
+            }
+            return session;
+        }
+        return null;
+    }
+
+    public SessionStatusResponse getSessionStatus(String sessionId) {
+        SessionData session = getSession(sessionId);
+        if (session == null) {
+            return null;
+        }
+
+        SessionStatusResponse response = new SessionStatusResponse();
+
+        if (!session.isCompleted()) {
+            // Check if timeout has elapsed
+            long elapsedSeconds = (System.currentTimeMillis() - session.getCreatedAt()) / 1000;
+            if (elapsedSeconds >= session.getCompletionTimeoutSeconds()) {
+                // Auto-complete the session
+                try {
+                    CertificateService.UserCertificateWithKey userCert = certificateService.generateUserCertificate(
+                            session.getGivenName(),
+                            session.getSurname(),
+                            session.getPersonalCode(),
+                            session.getCountry());
+                    String signature = certificateService.signHash(session.getHash(), userCert.getPrivateKey());
+                    session = completeSession(sessionId, userCert.getCertificate(), signature);
+                } catch (Exception e) {
+                    throw new RuntimeException("Failed to auto-complete session", e);
+                }
+            } else {
+                response.setState("RUNNING");
+                return response;
+            }
+        }
+
+        response.setState("COMPLETE");
+        response.setInteractionFlowUsed("displayTextAndPIN");
+
+        SessionStatusResponse.Result result = new SessionStatusResponse.Result();
+        result.setEndResult("OK");
+        result.setDocumentNumber("PNOEE-" + session.getPersonalCode());
+        response.setResult(result);
+
+        SessionStatusResponse.Signature signature = new SessionStatusResponse.Signature();
+        signature.setValue(session.getSignature());
+        signature.setAlgorithm("sha512WithRSAEncryption");
+        response.setSignature(signature);
+
+        SessionStatusResponse.Cert cert = new SessionStatusResponse.Cert();
+        cert.setValue(session.getCertificateBase64());
+        cert.setCertificateLevel("QUALIFIED");
+        response.setCert(cert);
+
+        return response;
+    }
+}

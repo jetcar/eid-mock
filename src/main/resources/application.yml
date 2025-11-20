@@ -1,0 +1,46 @@
+server:
+  port: ${SERVER_PORT:8083}
+  ssl:
+    enabled: ${SSL_ENABLED:true}
+    key-store: file:${SSL_KEYSTORE_PATH:/repo/vscode/smartid-mock/config/keystore.p12}
+    key-store-password: ${KEY_STORE_PASSWORD:changeit}
+    key-store-type: PKCS12
+    key-alias: ${SSL_KEYSTORE_ALIAS:springboot}
+
+spring:
+  application:
+    name: smartid-mock
+  redis:
+    host: ${REDIS_HOST:localhost}
+    port: ${REDIS_PORT:6379}
+    password: ${REDIS_PASSWORD:}
+
+ca:
+  keystore:
+    path: ${CA_KEYSTORE_PATH:/repo/vscode/smartid-mock/config/smartid_mock.p12}
+    password: ${CA_KEYSTORE_PASSWORD:changeit}
+    key-alias: ${CA_KEY_ALIAS:smartid-mock-ca-key}
+    cert-alias: ${CA_CERT_ALIAS:smartid-mock-ca-cert}
+
+logging:
+  level:
+    root: INFO
+    com.example: DEBUG
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    tags-sorter: alpha
+    operations-sorter: alpha
+  api-docs:
+    path: /v3/api-docs
+  show-actuator: true
+
