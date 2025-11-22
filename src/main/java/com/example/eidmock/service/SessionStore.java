@@ -1,6 +1,8 @@
-package com.example.smartid.service;
+package com.example.eidmock.service;
 
-import com.example.smartid.dto.SessionStatusResponse;
+import com.example.eidmock.dto.MidSessionSignature;
+import com.example.eidmock.dto.MidSessionStatus;
+import com.example.eidmock.dto.SessionStatusResponse;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -29,6 +31,7 @@ public class SessionStore {
         private String personalCode;
         private String country;
         private String hash;
+        private String hashType;
         private String givenName;
         private String surname;
         private long createdAt;
@@ -41,10 +44,12 @@ public class SessionStore {
             // Default constructor for Jackson
         }
 
-        public SessionData(String personalCode, String country, String hash, String givenName, String surname) {
+        public SessionData(String personalCode, String country, String hash, String hashType, String givenName,
+                String surname) {
             this.personalCode = personalCode;
             this.country = country;
             this.hash = hash;
+            this.hashType = hashType != null ? hashType : "SHA512"; // Default to SHA512 for backward compatibility
             this.givenName = givenName;
             this.surname = surname;
             this.createdAt = System.currentTimeMillis();
@@ -71,6 +76,10 @@ public class SessionStore {
 
         public String getHash() {
             return hash;
+        }
+
+        public String getHashType() {
+            return hashType;
         }
 
         public String getGivenName() {
@@ -122,9 +131,10 @@ public class SessionStore {
         }
     }
 
-    public String createSession(String personalCode, String country, String hash, String givenName, String surname) {
+    public String createSession(String personalCode, String country, String hash, String hashType, String givenName,
+            String surname) {
         String sessionId = UUID.randomUUID().toString();
-        SessionData sessionData = new SessionData(personalCode, country, hash, givenName, surname);
+        SessionData sessionData = new SessionData(personalCode, country, hash, hashType, givenName, surname);
         redisTemplate.opsForValue().set(sessionId, sessionData, SESSION_TIMEOUT_MINUTES, TimeUnit.MINUTES);
         return sessionId;
     }
@@ -169,7 +179,8 @@ public class SessionStore {
                             session.getSurname(),
                             session.getPersonalCode(),
                             session.getCountry());
-                    String signature = certificateService.signHash(session.getHash(), userCert.getPrivateKey());
+                    String signature = certificateService.signHash(session.getHash(), session.getHashType(),
+                            userCert.getPrivateKey());
                     session = completeSession(sessionId, userCert.getCertificate(), signature);
                 } catch (Exception e) {
                     throw new RuntimeException("Failed to auto-complete session", e);
@@ -190,13 +201,65 @@ public class SessionStore {
 
         SessionStatusResponse.Signature signature = new SessionStatusResponse.Signature();
         signature.setValue(session.getSignature());
-        signature.setAlgorithm("sha512WithRSAEncryption");
+        // Set algorithm based on hashType from session
+        String algorithm = "SHA256".equalsIgnoreCase(session.getHashType())
+                ? "sha256WithRSAEncryption"
+                : "sha512WithRSAEncryption";
+        signature.setAlgorithm(algorithm);
         response.setSignature(signature);
 
         SessionStatusResponse.Cert cert = new SessionStatusResponse.Cert();
         cert.setValue(session.getCertificateBase64());
         cert.setCertificateLevel("QUALIFIED");
         response.setCert(cert);
+
+        return response;
+    }
+
+    public MidSessionStatus getMidSessionStatus(String sessionId) {
+        SessionData session = getSession(sessionId);
+        if (session == null) {
+            return null;
+        }
+
+        MidSessionStatus response = new MidSessionStatus();
+
+        if (!session.isCompleted()) {
+            // Check if timeout has elapsed
+            long elapsedSeconds = (System.currentTimeMillis() - session.getCreatedAt()) / 1000;
+            if (elapsedSeconds >= session.getCompletionTimeoutSeconds()) {
+                // Auto-complete the session
+                try {
+                    CertificateService.UserCertificateWithKey userCert = certificateService.generateUserCertificate(
+                            session.getGivenName(),
+                            session.getSurname(),
+                            session.getPersonalCode(),
+                            session.getCountry());
+                    String signature = certificateService.signHash(session.getHash(), session.getHashType(),
+                            userCert.getPrivateKey());
+                    session = completeSession(sessionId, userCert.getCertificate(), signature);
+                } catch (Exception e) {
+                    throw new RuntimeException("Failed to auto-complete session", e);
+                }
+            } else {
+                response.setState("RUNNING");
+                return response;
+            }
+        }
+
+        response.setState("COMPLETE");
+        response.setResult("OK");
+
+        MidSessionSignature signature = new MidSessionSignature();
+        signature.setValue(session.getSignature());
+        // Set algorithm based on hashType from session
+        String algorithm = "SHA256".equalsIgnoreCase(session.getHashType())
+                ? "sha256WithRSAEncryption"
+                : "sha512WithRSAEncryption";
+        signature.setAlgorithm(algorithm);
+        response.setSignature(signature);
+
+        response.setCert(session.getCertificateBase64());
 
         return response;
     }

@@ -2,14 +2,14 @@ server:
   port: ${SERVER_PORT:8083}
   ssl:
     enabled: ${SSL_ENABLED:true}
-    key-store: ${SSL_KEYSTORE_PATH:smartid-mock/config/keystore.p12}
+    key-store: ${SSL_KEYSTORE_PATH:eid-mock/config/keystore.p12}
     key-store-password: ${KEY_STORE_PASSWORD:changeit}
     key-store-type: PKCS12
     key-alias: ${SSL_KEYSTORE_ALIAS:springboot}
 
 spring:
   application:
-    name: smartid-mock
+    name: eid-mock
   redis:
     host: ${REDIS_HOST:localhost}
     port: ${REDIS_PORT:6379}
@@ -17,7 +17,7 @@ spring:
 
 ca:
   keystore:
-    path: ${CA_KEYSTORE_PATH:smartid-mock/config/smartid_mock.p12}
+    path: ${CA_KEYSTORE_PATH:eid-mock/config/smartid_mock.p12}
     password: ${CA_KEYSTORE_PASSWORD:changeit}
     key-alias: ${CA_KEY_ALIAS:smartid-mock-ca-key}
     cert-alias: ${CA_CERT_ALIAS:smartid-mock-ca-cert}

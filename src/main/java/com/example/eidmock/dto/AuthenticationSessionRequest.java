@@ -1,4 +1,4 @@
-package com.example.smartid.dto;
+package com.example.eidmock.dto;
 
 public class AuthenticationSessionRequest {
     private String relyingPartyUUID;
@@ -9,6 +9,12 @@ public class AuthenticationSessionRequest {
     private String nonce;
     private AllowedInteractionsOrder[] allowedInteractionsOrder;
     private RequestProperties requestProperties;
+
+    // Mobile-ID specific fields
+    private String phoneNumber;
+    private String nationalIdentityNumber;
+    private String language;
+    private String displayText;
 
     public static class AllowedInteractionsOrder {
         private String type;
@@ -105,6 +111,38 @@ public class AuthenticationSessionRequest {
 
     public void setRequestProperties(RequestProperties requestProperties) {
         this.requestProperties = requestProperties;
+    }
+
+    public String getPhoneNumber() {
+        return phoneNumber;
+    }
+
+    public void setPhoneNumber(String phoneNumber) {
+        this.phoneNumber = phoneNumber;
+    }
+
+    public String getNationalIdentityNumber() {
+        return nationalIdentityNumber;
+    }
+
+    public void setNationalIdentityNumber(String nationalIdentityNumber) {
+        this.nationalIdentityNumber = nationalIdentityNumber;
+    }
+
+    public String getLanguage() {
+        return language;
+    }
+
+    public void setLanguage(String language) {
+        this.language = language;
+    }
+
+    public String getDisplayText() {
+        return displayText;
+    }
+
+    public void setDisplayText(String displayText) {
+        this.displayText = displayText;
     }
 }
 

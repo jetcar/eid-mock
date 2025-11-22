@@ -1,4 +1,4 @@
-package com.example.smartid.dto;
+package com.example.eidmock.dto;
 
 public class SessionStatusResponse {
     private String state;

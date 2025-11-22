@@ -1,12 +1,13 @@
-package com.example.smartid.config;
+package com.example.eidmock.config;
 
-import com.example.smartid.service.SessionStore.SessionData;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.serializer.Jackson2JsonRedisSerializer;
 import org.springframework.data.redis.serializer.StringRedisSerializer;
+
+import com.example.eidmock.service.SessionStore.SessionData;
 
 @Configuration
 public class RedisConfig {

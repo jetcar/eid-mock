@@ -1,4 +1,4 @@
-package com.example.smartid.service;
+package com.example.eidmock.service;
 
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo;
@@ -130,26 +130,42 @@ public class CertificateService {
         return new UserCertificateWithKey(certificate, (PrivateKey) userKeyPair.getPrivate());
     }
 
-    public String signHash(String hashInBase64, PrivateKey privateKey) throws Exception {
-        // The hash is already computed (SHA-512), so we sign it directly without
-        // additional hashing
-        // We need to create a DigestInfo structure for RSA signature with SHA-512
+    public String signHash(String hashInBase64, String hashType, PrivateKey privateKey) throws Exception {
+        // The hash is already computed, so we sign it directly without additional
+        // hashing
+        // We need to create a DigestInfo structure for RSA signature
         byte[] hash = Base64.getDecoder().decode(hashInBase64);
 
-        // Create DigestInfo for SHA-512
-        // DER encoding: SEQUENCE { SEQUENCE { OID, NULL }, OCTET STRING }
-        byte[] sha512Oid = {
-                0x30, 0x51, // SEQUENCE (81 bytes)
-                0x30, 0x0d, // SEQUENCE (13 bytes)
-                0x06, 0x09, 0x60, (byte) 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x03, // OID 2.16.840.1.101.3.4.2.3
-                                                                                         // (SHA-512)
-                0x05, 0x00, // NULL
-                0x04, 0x40 // OCTET STRING (64 bytes)
-        };
+        byte[] digestInfoHeader;
+        if ("SHA256".equalsIgnoreCase(hashType)) {
+            // Create DigestInfo for SHA-256
+            // DER encoding: SEQUENCE { SEQUENCE { OID, NULL }, OCTET STRING }
+            digestInfoHeader = new byte[] {
+                    0x30, 0x31, // SEQUENCE (49 bytes)
+                    0x30, 0x0d, // SEQUENCE (13 bytes)
+                    0x06, 0x09, 0x60, (byte) 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01, // OID
+                                                                                             // 2.16.840.1.101.3.4.2.1
+                                                                                             // (SHA-256)
+                    0x05, 0x00, // NULL
+                    0x04, 0x20 // OCTET STRING (32 bytes)
+            };
+        } else {
+            // Default to SHA-512
+            // Create DigestInfo for SHA-512
+            digestInfoHeader = new byte[] {
+                    0x30, 0x51, // SEQUENCE (81 bytes)
+                    0x30, 0x0d, // SEQUENCE (13 bytes)
+                    0x06, 0x09, 0x60, (byte) 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x03, // OID
+                                                                                             // 2.16.840.1.101.3.4.2.3
+                                                                                             // (SHA-512)
+                    0x05, 0x00, // NULL
+                    0x04, 0x40 // OCTET STRING (64 bytes)
+            };
+        }
 
-        byte[] digestInfo = new byte[sha512Oid.length + hash.length];
-        System.arraycopy(sha512Oid, 0, digestInfo, 0, sha512Oid.length);
-        System.arraycopy(hash, 0, digestInfo, sha512Oid.length, hash.length);
+        byte[] digestInfo = new byte[digestInfoHeader.length + hash.length];
+        System.arraycopy(digestInfoHeader, 0, digestInfo, 0, digestInfoHeader.length);
+        System.arraycopy(hash, 0, digestInfo, digestInfoHeader.length, hash.length);
 
         // Sign the DigestInfo using NONEwithRSA (raw RSA signature)
         Signature signature = Signature.getInstance("NONEwithRSA");
