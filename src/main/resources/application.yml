@@ -6,7 +6,7 @@ server:
     key-store-password: ${KEY_STORE_PASSWORD:changeit}
     key-store-type: PKCS12
     key-alias: ${SSL_KEYSTORE_ALIAS:springboot}
-
+  forward-headers-strategy: framework
 spring:
   application:
     name: eid-mock
