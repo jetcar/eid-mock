@@ -12,6 +12,8 @@ import org.springframework.web.bind.annotation.*;
 import com.example.eidmock.dto.AuthenticationSessionResponse;
 import com.example.eidmock.dto.MidAuthenticationRequest;
 import com.example.eidmock.dto.MidSessionStatus;
+import com.example.eidmock.dto.MockConfiguration;
+import com.example.eidmock.service.MockConfigurationService;
 import com.example.eidmock.service.SessionStore;
 
 @RestController
@@ -23,6 +25,9 @@ public class MobileIdController {
 
     @Autowired
     private SessionStore sessionStore;
+
+    @Autowired
+    private MockConfigurationService mockConfigurationService;
 
     @PostMapping("/authentication")
     @Operation(summary = "Start Mobile-ID authentication", description = "Initiates a Mobile-ID authentication session")
@@ -36,6 +41,13 @@ public class MobileIdController {
         log.info("Mobile-ID authentication request for personalCode: {}, phoneNumber: {}", personalCode, phoneNumber);
         log.debug("Request: relyingPartyUUID={}, hash={}, displayText={}",
                 request.getRelyingPartyUUID(), request.getHash(), request.getDisplayText());
+
+        // Check if personal code has mock configuration
+        MockConfiguration config = mockConfigurationService.getConfiguration(personalCode);
+        if (config == null) {
+            log.warn("No mock configuration found for personal code: {}", personalCode);
+            return ResponseEntity.notFound().build();
+        }
 
         // Extract names from personal code (mock data)
         String givenName = "MOBILE";

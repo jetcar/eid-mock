@@ -11,7 +11,9 @@ import org.springframework.web.bind.annotation.*;
 
 import com.example.eidmock.dto.AuthenticationSessionRequest;
 import com.example.eidmock.dto.AuthenticationSessionResponse;
+import com.example.eidmock.dto.MockConfiguration;
 import com.example.eidmock.dto.SessionStatusResponse;
+import com.example.eidmock.service.MockConfigurationService;
 import com.example.eidmock.service.SessionStore;
 
 @RestController
@@ -22,6 +24,9 @@ public class SmartIdController {
 
     @Autowired
     private SessionStore sessionStore;
+
+    @Autowired
+    private MockConfigurationService mockConfigurationService;
 
     @PostMapping("/authentication/etsi/{personalCode}")
     @Operation(summary = "Start authentication by personal code", description = "Initiates a Smart-ID authentication session using national identity code in format PNOEE-12345678901")
@@ -51,6 +56,13 @@ public class SmartIdController {
         log.info("Authentication request for country: {}, personalCode: {}", country, actualPersonalCode);
         log.debug("Request: relyingPartyUUID={}, certificateLevel={}, hash={}",
                 request.getRelyingPartyUUID(), request.getCertificateLevel(), request.getHash());
+
+        // Check if personal code has mock configuration
+        MockConfiguration config = mockConfigurationService.getConfiguration(actualPersonalCode);
+        if (config == null) {
+            log.warn("No mock configuration found for personal code: {}", actualPersonalCode);
+            return ResponseEntity.notFound().build();
+        }
 
         // Extract names from personal code (mock data)
         String givenName = "MOCK";
