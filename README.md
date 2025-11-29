@@ -10,6 +10,7 @@ This Spring Boot application provides mock endpoints that simulate the behavior 
 
 - **Smart-ID Mock API**: Simulates SK Smart-ID REST API v2
 - **Mobile-ID Mock API**: Simulates SK Mobile-ID REST API v1
+- **Configurable Responses**: Pre-configure mock behavior per personal code for testing error scenarios
 - **Auto-completion**: Sessions automatically complete after random delays (5-60 seconds)
 - **Certificate Generation**: Generates mock X.509 certificates using BouncyCastle
 - **Redis Session Storage**: Persistent session storage with TTL
@@ -99,7 +100,7 @@ GET /session/{sessionId}?timeoutMs=30000
   "state": "COMPLETE",
   "result": {
     "endResult": "OK",
-    "documentNumber": "PNOEE-38509076512"
+    "documentNumber": "PNOEE-12345678901"
   },
   "signature": {
     "value": "base64-signature",
@@ -116,6 +117,66 @@ GET /session/{sessionId}?timeoutMs=30000
 ```http
 GET /certificatechoice/pno/{country}/{personalCode}
 ```
+
+### Mock Configuration Endpoints
+
+Configure how the mock service responds for specific personal codes. This allows testing error scenarios like user refusal, timeout, or wrong verification code.
+
+#### Set Mock Configuration
+```http
+POST /mock-config
+Content-Type: application/json
+
+{
+  "personalCode": "12345678901",
+  "endResult": "USER_REFUSED",
+  "delaySeconds": 10
+}
+```
+
+**Supported endResults:**
+- `OK` - Successful authentication (default)
+- `USER_REFUSED` - User cancelled authentication
+- `USER_REFUSED_INTERACTION` - User refused interaction
+- `WRONG_VC` - Wrong verification code entered
+- `TIMEOUT` - User did not respond in time
+
+**Response:**
+```json
+{
+  "personalCode": "12345678901",
+  "endResult": "USER_REFUSED",
+  "delaySeconds": 10
+}
+```
+
+#### Get Mock Configuration
+```http
+GET /mock-config/{personalCode}
+```
+
+Returns the configured behavior for a personal code, or 404 if not configured.
+
+#### Delete Mock Configuration
+```http
+DELETE /mock-config/{personalCode}
+```
+
+Removes configuration - future sessions will use default behavior (OK result).
+
+#### List All Configurations
+```http
+GET /mock-config
+```
+
+Returns array of all configured personal codes.
+
+#### Clear All Configurations
+```http
+DELETE /mock-config
+```
+
+Removes all mock configurations.
 
 ### Mobile-ID Endpoints
 
@@ -172,7 +233,7 @@ GET /mid-api/authentication/session/{sessionId}
 Smart-ID uses a special format for personal codes:
 
 ```
-Format: PNOEE-38509076512
+Format: PNOEE-12345678901
         ^^^ ^^  ^^^^^^^^^^^
         |   |   |
         |   |   +--- Actual personal code
@@ -181,7 +242,7 @@ Format: PNOEE-38509076512
 ```
 
 Examples:
-- `PNOEE-38509076512` - Estonian
+- `PNOEE-12345678901` - Estonian
 - `PNOLT-12345678901` - Lithuanian
 - `PNOLV-12345678901` - Latvian
 
@@ -199,11 +260,48 @@ Mobile-ID accepts simple personal codes without prefix: `60001019906`
 
 ## Session Behavior
 
+### Default Behavior
 1. **Creation**: Session created with random completion timeout (5-60 seconds)
 2. **Storage**: Stored in Redis with 5-minute TTL
 3. **Polling**: Client polls status endpoint
 4. **Auto-completion**: Session automatically completes when timeout expires
-5. **Response**: Returns signature and mock certificate
+5. **Response**: Returns signature and mock certificate with `endResult: OK`
+
+### Configured Behavior
+When a mock configuration exists for a personal code:
+1. **Timeout**: Uses configured `delaySeconds` instead of random
+2. **End Result**: Returns configured `endResult` (OK, USER_REFUSED, TIMEOUT, etc.)
+3. **Certificate**: Only included for `OK` results, omitted for error scenarios
+4. **Signature**: Only included for `OK` results, omitted for error scenarios
+
+Example: Testing timeout scenario
+```bash
+# Configure personal code to timeout after 5 seconds
+curl -k -X POST https://localhost:8083/mock-config \
+  -H "Content-Type: application/json" \
+  -d '{
+    "personalCode": "12345678901",
+    "endResult": "TIMEOUT",
+    "delaySeconds": 5
+  }'
+
+# Start authentication with this personal code
+curl -k -X POST https://localhost:8083/authentication/etsi/PNOEE-12345678901 \
+  -H "Content-Type: application/json" \
+  -d '{...}'
+
+# After 5 seconds, session returns TIMEOUT result without certificate
+curl -k https://localhost:8083/session/{sessionId}
+# Response:
+# {
+#   "state": "COMPLETE",
+#   "interactionFlowUsed": "displayTextAndPIN",
+#   "result": {
+#     "endResult": "TIMEOUT",
+#     "documentNumber": "PNOEE-12345678901"
+#   }
+# }
+```
 
 ## Certificate Generation
 
@@ -326,7 +424,7 @@ mobileid:
 
 ```bash
 # Start Smart-ID authentication
-curl -k -X POST https://localhost:8083/authentication/etsi/PNOEE-38509076512 \
+curl -k -X POST https://localhost:8083/authentication/etsi/PNOEE-12345678901 \
   -H "Content-Type: application/json" \
   -d '{
     "relyingPartyUUID": "00000000-0000-0000-0000-000000000000",

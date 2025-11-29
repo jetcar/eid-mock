@@ -13,6 +13,7 @@ import org.springframework.data.redis.serializer.StringRedisSerializer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.example.eidmock.dto.MockConfiguration;
 import com.example.eidmock.service.SessionStore.SessionData;
 
 @Configuration
@@ -78,6 +79,27 @@ public class RedisConfig {
         StringRedisTemplate template = new StringRedisTemplate();
         template.setConnectionFactory(connectionFactory);
         logger.info("StringRedisTemplate bean created");
+        return template;
+    }
+
+    @Bean
+    public RedisTemplate<String, MockConfiguration> mockConfigurationRedisTemplate(
+            RedisConnectionFactory connectionFactory) {
+        RedisTemplate<String, MockConfiguration> template = new RedisTemplate<>();
+        template.setConnectionFactory(connectionFactory);
+
+        // Use String serializer for keys
+        template.setKeySerializer(new StringRedisSerializer());
+        template.setHashKeySerializer(new StringRedisSerializer());
+
+        // Use Jackson JSON serializer for values
+        Jackson2JsonRedisSerializer<MockConfiguration> serializer = new Jackson2JsonRedisSerializer<>(
+                MockConfiguration.class);
+        template.setValueSerializer(serializer);
+        template.setHashValueSerializer(serializer);
+
+        template.afterPropertiesSet();
+        logger.info("RedisTemplate bean created for MockConfiguration");
         return template;
     }
 }

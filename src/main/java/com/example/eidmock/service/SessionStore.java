@@ -2,6 +2,7 @@ package com.example.eidmock.service;
 
 import com.example.eidmock.dto.MidSessionSignature;
 import com.example.eidmock.dto.MidSessionStatus;
+import com.example.eidmock.dto.MockConfiguration;
 import com.example.eidmock.dto.SessionStatusResponse;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,6 +26,9 @@ public class SessionStore {
     @Autowired
     private CertificateService certificateService;
 
+    @Autowired
+    private MockConfigurationService mockConfigurationService;
+
     public static class SessionData implements Serializable {
         private static final long serialVersionUID = 1L;
 
@@ -39,6 +43,7 @@ public class SessionStore {
         private boolean completed;
         private String certificateBase64;
         private String signature;
+        private String endResult;
 
         public SessionData() {
             // Default constructor for Jackson
@@ -56,6 +61,7 @@ public class SessionStore {
             // Random timeout between 5 and 60 seconds
             this.completionTimeoutSeconds = 5 + (int) (Math.random() * 30);
             this.completed = false;
+            this.endResult = "OK";
         }
 
         public long getCreatedAt() {
@@ -129,12 +135,62 @@ public class SessionStore {
         public void setSignature(String signature) {
             this.signature = signature;
         }
+
+        public String getEndResult() {
+            return endResult;
+        }
+
+        public void setEndResult(String endResult) {
+            this.endResult = endResult;
+        }
+
+        public void setCreatedAt(long createdAt) {
+            this.createdAt = createdAt;
+        }
+
+        public void setCompletionTimeoutSeconds(int completionTimeoutSeconds) {
+            this.completionTimeoutSeconds = completionTimeoutSeconds;
+        }
+
+        public void setPersonalCode(String personalCode) {
+            this.personalCode = personalCode;
+        }
+
+        public void setCountry(String country) {
+            this.country = country;
+        }
+
+        public void setHash(String hash) {
+            this.hash = hash;
+        }
+
+        public void setHashType(String hashType) {
+            this.hashType = hashType;
+        }
+
+        public void setGivenName(String givenName) {
+            this.givenName = givenName;
+        }
+
+        public void setSurname(String surname) {
+            this.surname = surname;
+        }
     }
 
     public String createSession(String personalCode, String country, String hash, String hashType, String givenName,
             String surname) {
         String sessionId = UUID.randomUUID().toString();
         SessionData sessionData = new SessionData(personalCode, country, hash, hashType, givenName, surname);
+
+        // Check for mock configuration
+        MockConfiguration config = mockConfigurationService.getConfiguration(personalCode);
+        if (config != null) {
+            sessionData.setEndResult(config.getEndResult() != null ? config.getEndResult().name() : "OK");
+            if (config.getDelaySeconds() != null && config.getDelaySeconds() > 0) {
+                sessionData.setCompletionTimeoutSeconds(config.getDelaySeconds());
+            }
+        }
+
         redisTemplate.opsForValue().set(sessionId, sessionData, SESSION_TIMEOUT_MINUTES, TimeUnit.MINUTES);
         return sessionId;
     }
@@ -148,8 +204,11 @@ public class SessionStore {
         if (session != null) {
             try {
                 session.setCompleted(true);
-                session.setCertificate(certificate);
-                session.setSignature(signature);
+                // Only set certificate and signature for successful results
+                if ("OK".equals(session.getEndResult())) {
+                    session.setCertificate(certificate);
+                    session.setSignature(signature);
+                }
                 // Update in Redis
                 redisTemplate.opsForValue().set(sessionId, session, SESSION_TIMEOUT_MINUTES, TimeUnit.MINUTES);
             } catch (Exception e) {
@@ -174,14 +233,20 @@ public class SessionStore {
             if (elapsedSeconds >= session.getCompletionTimeoutSeconds()) {
                 // Auto-complete the session
                 try {
-                    CertificateService.UserCertificateWithKey userCert = certificateService.generateUserCertificate(
-                            session.getGivenName(),
-                            session.getSurname(),
-                            session.getPersonalCode(),
-                            session.getCountry());
-                    String signature = certificateService.signHash(session.getHash(), session.getHashType(),
-                            userCert.getPrivateKey());
-                    session = completeSession(sessionId, userCert.getCertificate(), signature);
+                    // Only generate certificate for OK results
+                    if ("OK".equals(session.getEndResult())) {
+                        CertificateService.UserCertificateWithKey userCert = certificateService.generateUserCertificate(
+                                session.getGivenName(),
+                                session.getSurname(),
+                                session.getPersonalCode(),
+                                session.getCountry());
+                        String signature = certificateService.signHash(session.getHash(), session.getHashType(),
+                                userCert.getPrivateKey());
+                        session = completeSession(sessionId, userCert.getCertificate(), signature);
+                    } else {
+                        // For non-OK results, just mark as completed
+                        session = completeSession(sessionId, null, null);
+                    }
                 } catch (Exception e) {
                     throw new RuntimeException("Failed to auto-complete session", e);
                 }
@@ -195,23 +260,26 @@ public class SessionStore {
         response.setInteractionFlowUsed("displayTextAndPIN");
 
         SessionStatusResponse.Result result = new SessionStatusResponse.Result();
-        result.setEndResult("OK");
+        result.setEndResult(session.getEndResult());
         result.setDocumentNumber("PNOEE-" + session.getPersonalCode());
         response.setResult(result);
 
-        SessionStatusResponse.Signature signature = new SessionStatusResponse.Signature();
-        signature.setValue(session.getSignature());
-        // Set algorithm based on hashType from session
-        String algorithm = "SHA256".equalsIgnoreCase(session.getHashType())
-                ? "sha256WithRSAEncryption"
-                : "sha512WithRSAEncryption";
-        signature.setAlgorithm(algorithm);
-        response.setSignature(signature);
+        // Only include signature and certificate for successful results
+        if ("OK".equals(session.getEndResult())) {
+            SessionStatusResponse.Signature signature = new SessionStatusResponse.Signature();
+            signature.setValue(session.getSignature());
+            // Set algorithm based on hashType from session
+            String algorithm = "SHA256".equalsIgnoreCase(session.getHashType())
+                    ? "sha256WithRSAEncryption"
+                    : "sha512WithRSAEncryption";
+            signature.setAlgorithm(algorithm);
+            response.setSignature(signature);
 
-        SessionStatusResponse.Cert cert = new SessionStatusResponse.Cert();
-        cert.setValue(session.getCertificateBase64());
-        cert.setCertificateLevel("QUALIFIED");
-        response.setCert(cert);
+            SessionStatusResponse.Cert cert = new SessionStatusResponse.Cert();
+            cert.setValue(session.getCertificateBase64());
+            cert.setCertificateLevel("QUALIFIED");
+            response.setCert(cert);
+        }
 
         return response;
     }
@@ -230,14 +298,20 @@ public class SessionStore {
             if (elapsedSeconds >= session.getCompletionTimeoutSeconds()) {
                 // Auto-complete the session
                 try {
-                    CertificateService.UserCertificateWithKey userCert = certificateService.generateUserCertificate(
-                            session.getGivenName(),
-                            session.getSurname(),
-                            session.getPersonalCode(),
-                            session.getCountry());
-                    String signature = certificateService.signHash(session.getHash(), session.getHashType(),
-                            userCert.getPrivateKey());
-                    session = completeSession(sessionId, userCert.getCertificate(), signature);
+                    // Only generate certificate for OK results
+                    if ("OK".equals(session.getEndResult())) {
+                        CertificateService.UserCertificateWithKey userCert = certificateService.generateUserCertificate(
+                                session.getGivenName(),
+                                session.getSurname(),
+                                session.getPersonalCode(),
+                                session.getCountry());
+                        String signature = certificateService.signHash(session.getHash(), session.getHashType(),
+                                userCert.getPrivateKey());
+                        session = completeSession(sessionId, userCert.getCertificate(), signature);
+                    } else {
+                        // For non-OK results, just mark as completed
+                        session = completeSession(sessionId, null, null);
+                    }
                 } catch (Exception e) {
                     throw new RuntimeException("Failed to auto-complete session", e);
                 }
@@ -248,18 +322,21 @@ public class SessionStore {
         }
 
         response.setState("COMPLETE");
-        response.setResult("OK");
+        response.setResult(session.getEndResult());
 
-        MidSessionSignature signature = new MidSessionSignature();
-        signature.setValue(session.getSignature());
-        // Set algorithm based on hashType from session
-        String algorithm = "SHA256".equalsIgnoreCase(session.getHashType())
-                ? "sha256WithRSAEncryption"
-                : "sha512WithRSAEncryption";
-        signature.setAlgorithm(algorithm);
-        response.setSignature(signature);
+        // Only include signature and certificate for successful results
+        if ("OK".equals(session.getEndResult())) {
+            MidSessionSignature signature = new MidSessionSignature();
+            signature.setValue(session.getSignature());
+            // Set algorithm based on hashType from session
+            String algorithm = "SHA256".equalsIgnoreCase(session.getHashType())
+                    ? "sha256WithRSAEncryption"
+                    : "sha512WithRSAEncryption";
+            signature.setAlgorithm(algorithm);
+            response.setSignature(signature);
 
-        response.setCert(session.getCertificateBase64());
+            response.setCert(session.getCertificateBase64());
+        }
 
         return response;
     }

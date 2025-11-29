@@ -29,7 +29,7 @@ public class SmartIdController {
             @Parameter(description = "Personal identification code with country prefix (e.g., PNOEE-40404040009)", required = true) @PathVariable String personalCode,
             @io.swagger.v3.oas.annotations.parameters.RequestBody(description = "Authentication session parameters") @RequestBody AuthenticationSessionRequest request) {
 
-        // Parse country code from personalCode (format: PNOEE-38509076512)
+        // Parse country code from personalCode (format: PNOEE-12345678901)
         final String country;
         final String actualPersonalCode;
 
